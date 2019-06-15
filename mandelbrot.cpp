@@ -1,7 +1,7 @@
 #include <iostream> //cout, cerr
 #include <complex>
 #include <string> //stof
-
+#include <mpi.h>
 #include "mandel.cuh"
 
 #include <png++/png.hpp>
