@@ -2,7 +2,7 @@
 #include <complex>
 #include <string> //stof
 #include <mpi.h>
-#include "mandel.cuh"
+//#include "mandel.cuh"
 
 #include <png++/png.hpp>
 
@@ -13,6 +13,14 @@
         std::exit (EXIT_FAILURE); \
 }
 
+// These tags are used to identify the messages. TCP does not guarantee that
+// two sent messages sent will be received in the correct order.
+#define TAG_TASK    0
+#define TAG_RESULT  1
+
+struct task {
+    int start, end;
+};
 
 int get_inter(std::complex<float> c) {
     std::complex<float> z(0.0, 0.0);
@@ -37,6 +45,104 @@ void fill_matrix(int *res, const int w, const int h, std::complex<float> c0, con
     return;
 }
 
+void slave_fill_matrix(const int w, const int h, std::complex<float> c0, const float del_y, const float del_x, const int threads){
+    struct task recv;
+    int err = 0;
+    int *result;
+    int work_size;
+
+    err |= MPI_Recv(&recv,
+            sizeof(struct task),
+            MPI_CHAR,
+            0,
+            TAG_TASK,
+            MPI_COMM_WORLD,
+            MPI_STATUS_IGNORE
+    );
+    
+    work_size = recv.end - recv.start;
+    result = new int[work_size];
+    std::complex<float> del(0, 0);
+    //#pragma omp parallel for num_threads(threads)
+        for (int k = 0; k < work_size; ++k) {
+            del.real(del_x * (k%w));
+            del.imag(del_y * (k/w));
+            result[recv.start + k] = get_inter(c0 + del);
+        }
+    std::cout << "WORK SIZE: " << work_size << "\n";
+    err |= MPI_Send(result,
+            work_size,
+            MPI_INT,
+            0,
+            TAG_RESULT,
+            MPI_COMM_WORLD
+    );
+    std::cout << "ENVIOU" << "\n";
+
+    free(result);
+    if (err)
+        DIE("There was an MPI error in one slave.\n");
+
+    return;
+}
+
+void master_fill_matrix(int *res, const int w, const int h, std::complex<float> c0, const float del_y, const float del_x, const int threads, const int num_slaves) {
+    struct task *tasks = new struct task[num_slaves];
+    int err = 0;
+
+    // The work is being splitted as evenly as possible between processes.
+    int threads_with_one_more_work = h*w % num_slaves;
+
+    for (int i = 0; i < num_slaves; ++i) {
+        int work_size = h*w / num_slaves;
+
+        if (i < threads_with_one_more_work)
+            work_size += 1;
+
+        tasks[i].start = i * work_size;
+        tasks[i].end = (i + 1) * work_size;
+
+        err |= MPI_Send(&tasks[i],   // Buffer to send
+                sizeof(struct task), // How many elements. Note that there is a hack here.
+                MPI_CHAR,            // Type of element. Note that there is a hack here.
+                i+1,                 // For which process
+                TAG_TASK,            // Tag of the message. Remember that TCP do not guarantee order.
+                MPI_COMM_WORLD       // In the context of the entire world.
+        );
+    }
+
+    // Gather the results
+    for (int i = 0; i < num_slaves; ++i)
+    {
+        int *result;
+        int work_size = h*w / num_slaves;
+        if (i < threads_with_one_more_work)
+            work_size += 1;
+
+        result = new int[work_size];
+        std::cout << "VAI ESPERAR O PRIMEIRO" << "\n";
+        err |= MPI_Recv(result, // Buffer to write to. You must ensure that the message fits here.
+                work_size,          // How many elements.
+                MPI_INT, // Type.
+                i+1,        // From which process
+                TAG_RESULT, // Tag of message. Again, remember that TCP do not guarantee order.
+                MPI_COMM_WORLD, // In the context of the entire world.
+                MPI_STATUS_IGNORE // Ignore the status return.
+        );
+        std::cout << "PASSOU DO RECEIVE" << "\n";
+
+        if (err) {
+            free(result);
+            DIE("There was an MPI error in the master.\n");
+        }
+        // Process result
+        for (int j = 0; j < work_size; ++j)
+            res[(i * work_size) + j] = result[j];
+        free(result);
+        delete[] tasks;
+    }
+}
+
 void create_picture(int *matrix, const std::string file_name, const int w, const int  h) {
     png::image< png::rgb_pixel > image(w, h);
     for (png::uint_32 i = 0; i < image.get_height(); ++i) {
@@ -59,23 +165,51 @@ int main(int argc, char** argv) {
     const std::string comp_flag = argv[7];
     const int num_threads = std::stoi(argv[8]);
     const std::string file_name = argv[9];
-    
     const float del_x = (c1.real() - c0.real()) / (w - 1);
     const float del_y = (c1.imag() - c0.imag()) / (h - 1);
     int *res = new int[w*h];
-    
-    if (comp_flag.compare("CPU") == 0) {
-        fill_matrix(res, w, h, c0, del_y, del_x, num_threads);
+    int *res_test = new int[w*h];
+    int world_size, taskid;
+    int err = 0;
+
+    // Send attributes to all processes, and initialize MPI.
+    err |= MPI_Init(&argc, &argv);
+
+    // Get how many processes there are in the world MPI_COMM_WORLD
+    err |= MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+
+    // Which process am I?
+    err |= MPI_Comm_rank(MPI_COMM_WORLD, &taskid);
+
+    if (err)
+        DIE("There was an MPI initialization error.\n");
+
+    if (taskid == 0) {
+        if (comp_flag.compare("CPU") == 0) {
+            master_fill_matrix(res, w, h, c0, del_y, del_x, num_threads, world_size - 1);
+            fill_matrix(res_test, w, h, c0, del_y, del_x, num_threads);
+        }
+        else if (comp_flag.compare("GPU") == 0) {
+            //prepare(res, w, h, c0, del_y, del_x, num_threads);
+            DIE("Comprou GPU AMD!¯\\_(ツ)_/¯");
+        } 
+        else {
+            DIE("Neither CPU nor GPU selected.\n");
+        }
+
+        for (int i = 0; i < w*h; ++i)
+            if (res[i] != res_test[i])
+                DIE("Deu ruim =(");
+
+        create_picture(res, file_name, w, h);
+        delete[] res;
+        delete[] res_test;
     }
-    else if (comp_flag.compare("GPU") == 0) {
-        prepare(res, w, h, c0, del_y, del_x, num_threads);
-    } 
     else {
-        DIE("Neither CPU nor GPU selected.\n");
+        slave_fill_matrix(w, h, c0, del_y, del_x, num_threads);
     }
-    create_picture(res, file_name, w, h);
-    
-    delete[] res;
+
+    MPI_Finalize();
 
     return 0;
 }
