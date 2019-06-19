@@ -1,5 +1,4 @@
 #include <iostream>
-#include <thrust/complex.h>
 #include "mandel.cuh"
 #define INTER_LIMIT 255
 
@@ -27,11 +26,11 @@ __global__ void fill_matrix (int *res, const int w, const int h, thrust::complex
     return;
 }
 
-void prepare (int *res_matrix, const int w, const int h, std::complex<float> c0, const float del_y, const float del_x, const int threads) {
+__host__ void prepare (int *res_matrix, const int w, const int h, thrust::complex<float> c0, const float del_y, const float del_x, const int threads) {
     int *d_res_matrix; 
     int *d_w; 
     int *d_h;
-    std::complex<float> *d_c0; 
+    thrust::complex<float> *d_c0; 
     float *d_del_y; 
     float *d_del_x; 
     
@@ -49,7 +48,7 @@ void prepare (int *res_matrix, const int w, const int h, std::complex<float> c0,
         std::cerr << "Could not allocate memory";
         exit(EXIT_FAILURE);
     }
-    if (cudaSuccess != cudaMallocManaged((void **) &d_c0, sizeof(std::complex<float>)) ) {
+    if (cudaSuccess != cudaMallocManaged((void **) &d_c0, sizeof(thrust::complex<float>)) ) {
         std::cerr << "Could not allocate memory";
         exit(EXIT_FAILURE);
     }
@@ -70,7 +69,7 @@ void prepare (int *res_matrix, const int w, const int h, std::complex<float> c0,
         std::cerr << "Could not copy memory";
         exit(EXIT_FAILURE);
     }
-    if (cudaSuccess != cudaMemcpy(d_c0, &c0, sizeof(std::complex<float>), cudaMemcpyHostToDevice)) {
+    if (cudaSuccess != cudaMemcpy(d_c0, &c0, sizeof(thrust::complex<float>), cudaMemcpyHostToDevice)) {
         std::cerr << "Could not copy memory";
         exit(EXIT_FAILURE);
     }
