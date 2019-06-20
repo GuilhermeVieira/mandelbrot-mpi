@@ -1,12 +1,14 @@
 #include <iostream> //cout, cerr
 #include <complex>
 #include <string> //stof
-#include"mandel.cuh"
+#include "mandel.cuh"
 #include <png++/png.hpp>
 #include <mpi.h>
 
 // Defines a task of mandelbrot set calculation over some pixels in the image. 
 // The work must be done in the interval [start, end[
+std::string comp_flag;
+
 struct task {
     int start, end;
 };
@@ -47,13 +49,18 @@ void fill_matrix(int *res, const int w, const int h, std::complex<float> c0, con
 }
 
 void work(int *result, int start, const int w, int work_size, std::complex<float> c0, const float del_x, const float del_y, const int threads) {
-    std::complex<float> del(0, 0);
-    #pragma omp parallel for num_threads(threads)
-        for (int i = 0; i < work_size; ++i) {
-            del.real(del_x * ((start + i) % w));
-            del.imag(del_y * ((start + i) / w));
-            result[i] = get_inter(c0 + del);
-        }
+    if (comp_flag.compare("CPU") == 0) {
+	std::complex<float> del(0, 0);
+    	#pragma omp parallel for num_threads(threads)
+       	    for (int i = 0; i < work_size; ++i) {
+            	del.real(del_x * ((start + i) % w));
+            	del.imag(del_y * ((start + i) / w));
+            	result[i] = get_inter(c0 + del);
+            }
+    }
+    else {
+    	prepare(result, start, w, work_size, c0, del_x, del_y, threads);
+    }
     return;
 }
 
@@ -138,7 +145,7 @@ void slave_fill_matrix(const int w, std::complex<float> c0, const float del_x, c
     // Mandelbrot work
     work_size = recv.end - recv.start;
     result = new int[work_size];
-    work (result, recv.start, w, work_size, c0, del_x, del_y, threads);
+    work(result, recv.start, w, work_size, c0, del_x, del_y, threads);
     // Send vector
     err |= MPI_Send(result,
             work_size,
@@ -162,13 +169,17 @@ int main(int argc, char** argv) {
     std::complex<float> c1(std::stof(argv[3]), std::stof(argv[4]));
     const int w = std::stoi(argv[5]);
     const int h = std::stoi(argv[6]);
-    const std::string comp_flag = argv[7];
     const int num_threads = std::stoi(argv[8]);
     const std::string file_name = argv[9];
     const float del_x = (c1.real() - c0.real()) / (w - 1);
     const float del_y = (c1.imag() - c0.imag()) / (h - 1);
     int world_size, taskid;
     int err = 0;
+    comp_flag = argv[7];
+    // Verify if CPU or GPU were selected
+    if (comp_flag.compare("CPU") != 0 && comp_flag.compare("GPU") != 0) {
+    	DIE("Neither CPU or GPU were selected.\n");
+    }
     // Send attributes to all processes, and initialize MPI.
     err |= MPI_Init(&argc, &argv);
     // Get how many processes there are in the world MPI_COMM_WORLD
@@ -182,21 +193,15 @@ int main(int argc, char** argv) {
     if (taskid == 0) {
         int *res = new int[w*h];
         int *res_test = new int[w*h]; // FOR TESTING PURPOSES
-        if (comp_flag.compare("CPU") == 0) {
-            master_fill_matrix(res, w, h, c0, del_x, del_y, num_threads, world_size);
-            fill_matrix(res_test, w, h, c0, del_x, del_y, num_threads);
-        }
-        else if (comp_flag.compare("GPU") == 0) {
-            //prepare(res, w, h, c0, del_y, del_x, num_threads);
-            DIE("Comprou GPU AMD!¯\\_(ツ)_/¯");
-        } 
-        else {
-            DIE("Neither CPU nor GPU selected.\n");
-        }
+        master_fill_matrix(res, w, h, c0, del_x, del_y, num_threads, world_size);
+        fill_matrix(res_test, w, h, c0, del_x, del_y, num_threads);
         // FOR TEST PURPOSES
         for (int i = 0; i < w*h; ++i)
-            if (res[i] != res_test[i])
-                DIE("DEU MUITO RUIM!!! =(")
+            if (res[i] != res_test[i]) {
+               // DIE("DEU MUITO RUIM!!! =(");
+	       std::cout << res[i] << " " << res_test[i] << std::endl;
+	    }
+
         create_picture(res, file_name, w, h);
         delete[] res;
         delete[] res_test;

@@ -3,6 +3,6 @@
 
 #include <thrust/complex.h>
 
-__host__ void prepare (int *res_matrix, const int w, const int h, thrust::complex<float> c0, const float del_y, const float del_x, const int threads);
+__host__ void prepare (int *res_matrix, const int start, const int w, const int work_size, thrust::complex<float> c0, const float del_y, const float del_x, const int threads);
 
 #endif 
