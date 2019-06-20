@@ -35,7 +35,7 @@ int get_inter(std::complex<float> c) {
     return i;
 }
 
-void fill_matrix(int *res, const int w, const int h, std::complex<float> c0, const float del_y, const float del_x, const int threads){
+void fill_matrix(int *res, const int w, const int h, std::complex<float> c0, const float del_x, const float del_y, const int threads){
     std::complex<float> del(0, 0);
     #pragma omp parallel for num_threads(threads)
         for (int i = 0; i < h * w; ++i) {
@@ -46,13 +46,14 @@ void fill_matrix(int *res, const int w, const int h, std::complex<float> c0, con
     return;
 }
 
-void work(int *result, int start, const int w, int work_size, std::complex<float> c0, const float del_y, const float del_x) {
+void work(int *result, int start, const int w, int work_size, std::complex<float> c0, const float del_x, const float del_y, const int threads) {
     std::complex<float> del(0, 0);
-    for (int i = 0; i < work_size; ++i) {
-        del.real(del_x * ((start + i) % w));
-        del.imag(del_y * ((start + i) / w));
-        result[i] = get_inter(c0 + del);
-    }
+    #pragma omp parallel for num_threads(threads)
+        for (int i = 0; i < work_size; ++i) {
+            del.real(del_x * ((start + i) % w));
+            del.imag(del_y * ((start + i) / w));
+            result[i] = get_inter(c0 + del);
+        }
     return;
 }
 
@@ -69,14 +70,14 @@ void create_picture(int *matrix, const std::string file_name, const int w, const
 
 // Pseudo-master process. It will send the messages with the tasks, do its work and retrieve the
 // results from the slaves.
-static void master_fill_matrix(int *res, const int w, const int h, std::complex<float> c0, const float del_y, const float del_x, const int threads, int num_slaves)
+static void master_fill_matrix(int *res, const int w, const int h, std::complex<float> c0, const float del_x, const float del_y, const int threads, int num_workers)
 {
-    struct task *tasks = new struct task[num_slaves];
+    struct task *tasks = new struct task[num_workers];
     int err = 0;
-    int threads_with_one_more_work = h*w % num_slaves;
+    int threads_with_one_more_work = h*w % num_workers;
     // Distribute processes between processes.
-    for (int i = 0; i < num_slaves; ++i) {
-        int work_size = h*w / num_slaves;
+    for (int i = 0; i < num_workers; ++i) {
+        int work_size = h*w / num_workers;
         if (i < threads_with_one_more_work) {
             work_size += 1;
         }
@@ -94,9 +95,9 @@ static void master_fill_matrix(int *res, const int w, const int h, std::complex<
         }
     }
     // Master processing work
-    work(res, 0, w, tasks[0].end, c0, del_y, del_x); 
+    work(res, 0, w, tasks[0].end, c0, del_x, del_y, threads); 
     // Gather the results
-    for (int i = 1; i < num_slaves; ++i) {
+    for (int i = 1; i < num_workers; ++i) {
         int work_size = tasks[i].end - tasks[i].start;
         int *result = new int[work_size];
         err |= MPI_Recv(result,   // Buffer to write to. You must ensure that the message fits here.
@@ -120,7 +121,7 @@ static void master_fill_matrix(int *res, const int w, const int h, std::complex<
     return;
 }
 
-void slave_fill_matrix(const int w, std::complex<float> c0, const float del_y, const float del_x) {
+void slave_fill_matrix(const int w, std::complex<float> c0, const float del_x, const float del_y, const int threads) {
     struct task recv;
     int err = 0;
     int *result;
@@ -137,7 +138,7 @@ void slave_fill_matrix(const int w, std::complex<float> c0, const float del_y, c
     // Mandelbrot work
     work_size = recv.end - recv.start;
     result = new int[work_size];
-    work (result, recv.start, w, work_size, c0, del_y, del_x);
+    work (result, recv.start, w, work_size, c0, del_x, del_y, threads);
     // Send vector
     err |= MPI_Send(result,
             work_size,
@@ -182,8 +183,8 @@ int main(int argc, char** argv) {
         int *res = new int[w*h];
         int *res_test = new int[w*h]; // FOR TESTING PURPOSES
         if (comp_flag.compare("CPU") == 0) {
-            master_fill_matrix(res, w, h, c0, del_y, del_x, num_threads, world_size);
-            fill_matrix(res_test, w, h, c0, del_y, del_x, num_threads);
+            master_fill_matrix(res, w, h, c0, del_x, del_y, num_threads, world_size);
+            fill_matrix(res_test, w, h, c0, del_x, del_y, num_threads);
         }
         else if (comp_flag.compare("GPU") == 0) {
             //prepare(res, w, h, c0, del_y, del_x, num_threads);
@@ -203,7 +204,7 @@ int main(int argc, char** argv) {
     // Slave processes
     else {
         // USE OF THREADS ON CPU??
-        slave_fill_matrix(w, c0, del_y, del_x);
+        slave_fill_matrix(w, c0, del_x, del_y, num_threads);
     }
     MPI_Finalize();
 
