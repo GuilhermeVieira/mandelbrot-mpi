@@ -1,8 +1,12 @@
-CFLAGS=-Wall -Wextra -pedantic -fopenmp `libpng-config --ldflags`
+CFLAGS=-Wall -Wextra -pedantic -fopenmp -I/usr/local/cuda/include -L/usr/local/cuda/lib64 -lcuda -lcudart -lpthread `libpng-config --ldflags`
+NVCC=nvcc
 CC=mpic++
 
-all:
+all: mandel.o
 	$(CC) mandelbrot.cpp $(CFLAGS) -g -O2 -o dmbrot
+
+mandel.o: mandel.cu
+	$(NVCC) mandel.cu -c
 
 .PHONY: cpu
 cpu:
