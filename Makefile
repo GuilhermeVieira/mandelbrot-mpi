@@ -3,7 +3,7 @@ NVCC=nvcc
 CC=mpic++
 
 all: mandel.o
-	$(CC) mandelbrot.cpp $(CFLAGS) -g -O2 -o dmbrot
+	$(CC) mandelbrot.cpp mandel.o $(CFLAGS) -g -O2 -o dmbrot
 
 mandel.o: mandel.cu
 	$(NVCC) mandel.cu -c
