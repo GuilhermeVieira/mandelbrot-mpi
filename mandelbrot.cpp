@@ -46,6 +46,16 @@ void fill_matrix(int *res, const int w, const int h, std::complex<float> c0, con
     return;
 }
 
+void work(int *result, int start, const int w, int work_size, std::complex<float> c0, const float del_y, const float del_x) {
+    std::complex<float> del(0, 0);
+    for (int i = 0; i < work_size; ++i) {
+        del.real(del_x * ((start + i) % w));
+        del.imag(del_y * ((start + i) / w));
+        result[i] = get_inter(c0 + del);
+    }
+    return;
+}
+
 void create_picture(int *matrix, const std::string file_name, const int w, const int  h) {
     png::image< png::rgb_pixel > image(w, h);
     for (png::uint_32 i = 0; i < image.get_height(); ++i) {
@@ -83,13 +93,8 @@ static void master_fill_matrix(int *res, const int w, const int h, std::complex<
             );
         }
     }
-    // Master processing
-    std::complex<float> del(0, 0);
-    for (int k = 0; k < tasks[0].end; ++k) {
-        del.real(del_x * (k % w));
-        del.imag(del_y * (k / w));
-        res[k] = get_inter(c0 + del);
-    }
+    // Master processing work
+    work(res, 0, w, tasks[0].end, c0, del_y, del_x); 
     // Gather the results
     for (int i = 1; i < num_slaves; ++i) {
         int work_size = tasks[i].end - tasks[i].start;
@@ -129,15 +134,10 @@ void slave_fill_matrix(const int w, std::complex<float> c0, const float del_y, c
             MPI_COMM_WORLD,
             MPI_STATUS_IGNORE
     );
+    // Mandelbrot work
     work_size = recv.end - recv.start;
     result = new int[work_size];
-    std::complex<float> del(0, 0);
-    // Fill matrix
-    for (int k = 0; k < work_size; ++k) {
-        del.real(del_x * ((recv.start + k) % w));
-        del.imag(del_y * ((recv.start + k) / w));
-        result[k] = get_inter(c0 + del);
-    }
+    work (result, recv.start, w, work_size, c0, del_y, del_x);
     // Send vector
     err |= MPI_Send(result,
             work_size,
