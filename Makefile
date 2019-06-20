@@ -1,9 +1,8 @@
 CFLAGS=-Wall -Wextra -pedantic -fopenmp `libpng-config --ldflags`
-CC=g++
-LDFLAGS=-lm -lmpi
+CC=mpic++
 
 all:
-	$(CC) mandelbrot.cpp $(CFLAGS) $(LDFLAGS) -g -O2 -o dmbrot
+	$(CC) mandelbrot.cpp $(CFLAGS) -g -O2 -o dmbrot
 
 .PHONY: cpu
 cpu:
