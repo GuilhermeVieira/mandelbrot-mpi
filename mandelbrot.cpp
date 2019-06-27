@@ -192,19 +192,9 @@ int main(int argc, char** argv) {
     // Pseudo-master process
     if (taskid == 0) {
         int *res = new int[w*h];
-        int *res_test = new int[w*h]; // FOR TESTING PURPOSES
         master_fill_matrix(res, w, h, c0, del_x, del_y, num_threads, world_size);
-        fill_matrix(res_test, w, h, c0, del_x, del_y, num_threads);
-        // FOR TEST PURPOSES
-        for (int i = 0; i < w*h; ++i)
-            if (res[i] != res_test[i]) {
-               // DIE("DEU MUITO RUIM!!! =(");
-	       std::cout << res[i] << " " << res_test[i] << std::endl;
-	    }
-
         create_picture(res, file_name, w, h);
         delete[] res;
-        delete[] res_test;
     }
     // Slave processes
     else {

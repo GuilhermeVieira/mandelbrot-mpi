@@ -10,11 +10,11 @@ mandel.o: mandel.cu
 
 .PHONY: cpu
 cpu:
-	./dmbrot -2.0 -2.0 2.9 2.0 1920 1080 CPU 4 cpu.png
+	mpiexec -np 16 ./dmbrot -2.0 -2.0 2.9 2.0 1920 1080 CPU 4 cpu.png
 
 .PHONY: gpu
 gpu:
-	./dmbrot -2.0 -2.0 2.9 2.0 1920 1080 GPU 32 gpu.png
+	mpiexec -np 2 ./dmbrot -2.0 -2.0 2.9 2.0 1920 1080 GPU 32 gpu.png
 
 .PHONY: clean
 clean:
